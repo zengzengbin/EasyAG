@@ -14,7 +14,6 @@ const { createHost } = require('./host');
 const { createApi } = require('./api');
 const { LanguageService } = require('../adapters/desktop/language-service');
 const { ContextMonitor } = require('../features/context-monitor');
-const { QuotaService } = require('../features/quota-service');
 const { LogCleanup } = require('../features/log-cleanup');
 
 function createApplication({ rootDir, dataDir, native = false, testMode = false, fetchBytes, onClose = () => {} }) {
@@ -27,7 +26,6 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
   const languageService = new LanguageService({ profile: desktop.profile });
   const contextMonitor = new ContextMonitor(languageService);
   const accounts = new Accounts({ dataDir, events });
-  const quotaService = new QuotaService({ client: languageService, accounts, dataDir, events });
   const logCleanup = new LogCleanup({
     events,
     isRunning: async () => testMode || session?.phase === 'running' || (await desktop.running('hub')) || (await desktop.running('ide'))
@@ -39,7 +37,7 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
     source: (binding, target) => rendererSource(dictionary, settings.get(), binding, target),
     onMetrics: id => settings.get().enableContextMonitor && session?.phase === 'running' && !testMode
       ? contextMonitor.sample(id) : Promise.resolve({ conversationId: id, state: 'unavailable', context: null, speed: null }),
-    onStop: () => { contextMonitor.reset(); quotaService.reset(); },
+    onStop: () => { contextMonitor.reset(); },
     onStatus: status => {
       const key = JSON.stringify([status.cdpSockets, status.cdpTargets, status.cdpError]);
       if (key === lastStatus) return;
@@ -52,8 +50,6 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
     contextMonitor.client.target = target.id;
     contextMonitor.client.parentPid = pid;
     contextMonitor.reset();
-    quotaService.reset();
-    void quotaService.kick();
   }, onStop: () => {
     if (!testMode && settings.get().enableLogCleanup) void logCleanup.run();
   } });
@@ -73,7 +69,7 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
   });
   let closing;
   const app = {
-    rootDir, dataDir, events, settings, desktop, host, cdp, session, contextMonitor, quotaService, logCleanup, updater, accounts,
+    rootDir, dataDir, events, settings, desktop, host, cdp, session, contextMonitor, logCleanup, updater, accounts,
     status() {
       const currentSettings = settings.get();
       const allTargets = desktop.discoverAllTargets ? desktop.discoverAllTargets(currentSettings) : {};
@@ -160,7 +156,6 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
       if (closing) return closing;
       closing = (async () => {
         events.log('SYSTEM', '正在退出: ' + reason, 'tag-warn');
-        quotaService.reset();
         const result = await session.close(reason);
         host.dispose();
         api.close();

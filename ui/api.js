@@ -29,7 +29,6 @@ export const api = {
   accounts: () => request('/api/accounts', { timeoutMs: 60000 }),
   captureAccount: email => request('/api/accounts/capture', { body: email ? { email } : {}, timeoutMs: 60000 }),
   setAccountMeta: (id, meta) => request('/api/accounts/meta', { body: { id, ...meta }, timeoutMs: 60000 }),
-  refreshQuota: () => request('/api/quota/refresh', { body: {}, timeoutMs: 60000 }),
   switchAccount: id => request('/api/accounts/switch', { body: { id }, method: 'POST', timeoutMs: 120000 }),
   removeAccount: id => request('/api/accounts/remove', { body: { id }, method: 'POST', timeoutMs: 60000 }),
   importAccount: path => request('/api/accounts/import', { body: { path }, method: 'POST', timeoutMs: 60000 }),

@@ -2,7 +2,7 @@ const fs = require('node:fs/promises');
 const http = require('node:http');
 const { discoverProcesses, serverFromDiscovery, logPaths } = require('./language-service-discovery');
 
-const METHODS = new Set(['GetUserStatus', 'GetCascadeTrajectory', 'GetCascadeTrajectoryGeneratorMetadata', 'RetrieveUserQuotaSummary', 'GetLoadCodeAssist']);
+const METHODS = new Set(['GetUserStatus', 'GetCascadeTrajectory', 'GetCascadeTrajectoryGeneratorMetadata']);
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function readLogTail(file) {
