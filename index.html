@@ -24,11 +24,7 @@
   <div class="nav-header">
     <div class="brand">
       <span class="brand-title">EasyAG <span class="edition-tag">Lite</span></span>
-      <button type="button" class="version-pill" id="updateBtn" data-action="check-update" title="检查并拉取 Lite 版最新内核与汉化词典，免重装直接生效">
-        <span id="versionBadge">v4.0.5</span>
-        <span class="version-sep">·</span>
-        <span id="updateActionText">↻ 检查更新</span>
-      </button>
+      <span class="version-pill" id="versionBadge" title="自建 fork 版本，不接入上游热更新">v4.0.5</span>
     </div>
     <div class="nav-actions">
       <button type="button" class="tray-btn icon-only" id="themeToggleBtn" data-action="toggle-theme" title="切换浅色 / 深色外观（顶栏与面板同步变色）">
@@ -84,6 +80,21 @@
         <input type="checkbox" id="contextMonitorToggle" aria-label="AG 内上下文圆环" checked>
         <span class="slider"></span>
       </label>
+    </div>
+  </div>
+
+  <!-- 卡片 3: 多账号管理 -->
+  <div class="card" id="accountsCard" style="display: none;">
+    <div class="card-label">Google 账号管理 <span class="dict-badge" id="accountsStateBadge">· 读取中</span></div>
+    <div class="account-current">
+      <span class="account-avatar" id="currentAccountAvatar">👤</span>
+      <span class="account-email" id="currentAccountEmail">未检测到登录</span>
+    </div>
+    <div class="account-list" id="accountList"></div>
+    <div class="account-actions">
+      <button type="button" class="account-btn" data-action="capture-account" title="把当前登录的账号凭证保存为档案（DPAPI 加密存储），用于之后一键切换">💾 保存当前账号</button>
+      <button type="button" class="account-btn" data-action="add-account" title="引导你在 Antigravity 中登录另一个账号，并把两个账号都保存下来">➕ 添加账号…</button>
+      <button type="button" class="account-btn" data-action="import-account" title="从导出的 JSON 文件导入账号档案">📥 导入</button>
     </div>
   </div>
 
@@ -174,6 +185,22 @@
       <div class="modal-foot"><div class="modal-foot-right">
         <button type="button" class="btn-modal-cancel" data-action="dismiss-process" id="processCancelBtn">取消</button>
         <button type="button" class="btn-path-action btn-save" data-action="clean-process" id="processCleanBtn">清理并重新启动</button>
+      </div></div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="accountModal" style="display:none;">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
+      <div class="modal-head">
+        <div class="modal-title" id="accountModalTitle">添加账号</div>
+        <button type="button" class="modal-close-btn" data-action="dismiss-account" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc" id="accountModalDesc">1. 已保存当前账号。请打开 Antigravity，在设置中退出当前账号并登录另一个 Google 账号；登录完成后回到这里点击“完成添加”。</p>
+        <p class="modal-desc" id="accountModalError" role="alert" style="display:none;"></p>
+      </div>
+      <div class="modal-foot"><div class="modal-foot-right">
+        <button type="button" class="btn-modal-cancel" data-action="dismiss-account">取消</button>
+        <button type="button" class="btn-path-action btn-save" data-action="finish-add-account" id="finishAddAccountBtn">完成添加</button>
       </div></div>
     </div>
   </div>

@@ -80,6 +80,25 @@ assert.equal(dynamicNodes[0].nodeValue, '你已使用部分 5 小时额度，将
 window.__easyagI18n.dispose();
 assert.equal(dynamicNodes[0].nodeValue, 'You have used some of your 5-hour limit, it will fully refresh in 3 hours, 4 minutes.');
 assert.equal(dynamicNodes[1].nodeValue, '2 active conversations');
+
+// v4.1.0 补充的动态模板：See all (N) / Show N breakdown(s) / Rules & Skills 预算。
+const templateNodes = [
+  text('See all (7)', body), text('Show 1 breakdown', body), text('Show 10 breakdowns', body),
+  text('Rules: 679 tokens', body), text('Skills: 2,049 tokens', body),
+  text('See all (seven)', body), text('Show x breakdowns', body),
+  text('Show 10 breakdowns', code)
+];
+nodes.push(...templateNodes);
+installI18n(window, document, dictionary, true);
+assert.equal(templateNodes[0].nodeValue, '查看全部（7）');
+assert.equal(templateNodes[1].nodeValue, '显示 1 项明细');
+assert.equal(templateNodes[2].nodeValue, '显示 10 项明细');
+assert.equal(templateNodes[3].nodeValue, '规则：679 tokens');
+assert.equal(templateNodes[4].nodeValue, '技能：2,049 tokens');
+assert.equal(templateNodes[5].nodeValue, 'See all (seven)', '未知结构必须保持原文');
+assert.equal(templateNodes[6].nodeValue, 'Show x breakdowns', '未知结构必须保持原文');
+assert.equal(templateNodes[7].nodeValue, 'Show 10 breakdowns', '代码区不翻译');
+window.__easyagI18n.dispose();
 const { rendererSource, disposeSource } = require('../adapters/desktop/renderer');
 const mounts = [];
 const frameWindow = { MutationObserver: Observer, NodeFilter: { SHOW_TEXT: 4 } };

@@ -48,6 +48,21 @@ function installI18n(window, document, dictionary, enabled) {
     if (count && dictionary['{count} active conversations']) {
       return dictionary['{count} active conversations'].replace('{count}', count[1]);
     }
+    // "See all (N)" link; N varies with list length.
+    const seeAll = key.match(/^See all \((\d+)\)$/);
+    if (seeAll && dictionary['See all ({count})']) {
+      return dictionary['See all ({count})'].replace('{count}', seeAll[1]);
+    }
+    // "Show N breakdown(s)" disclosure; N varies.
+    const breakdown = key.match(/^Show (\d+) breakdowns?$/);
+    if (breakdown && dictionary['Show {count} breakdown']) {
+      return dictionary['Show {count} breakdown'].replace('{count}', breakdown[1]);
+    }
+    // "Rules: N tokens" / "Skills: N tokens" budget meters; N varies and may be localized.
+    const budget = key.match(/^(Rules|Skills): ([\d,.]+) tokens$/);
+    if (budget && dictionary[budget[1] + ': {n} tokens']) {
+      return dictionary[budget[1] + ': {n} tokens'].replace('{n}', budget[2]);
+    }
     const quota = key.match(/^(You have used some of your (?:weekly|5-hour) limit, it will fully refresh in )(.+)\.$/);
     if (!quota) return null;
     const template = dictionary[quota[1] + '{time}.'];

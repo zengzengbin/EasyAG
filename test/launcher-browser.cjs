@@ -57,6 +57,17 @@ async function main() {
     if (route === '/api/launch' && failLaunch) { res.statusCode = 409; result = { ok: false, error: 'Synthetic launch failure', code: 'TARGET_NOT_FOUND' }; }
     if (route === '/api/launch' && conflict) { res.statusCode = 409; result = { ok: false, code: 'PROCESS_CONFLICT', error: '已有 AG 进程' }; }
     if (route === '/api/clean-and-launch' && cleanupFails) { res.statusCode = 409; result = { ok: false, code: 'CLEANUP_FAILED', error: '进程未退出' }; }
+    if (route === '/api/accounts') result = {
+      supported: true,
+      current: { email: 'active@gmail.com', authMethod: 'consumer', scope: 'u-1' },
+      accounts: [
+        { id: 'active', email: 'active@gmail.com', authMethod: 'consumer', capturedAt: 't1', updatedAt: 't2', active: true },
+        { id: 'second', email: 'second@gmail.com', authMethod: 'consumer', capturedAt: 't1', updatedAt: 't2', active: false }
+      ],
+      errors: []
+    };
+    if (route === '/api/accounts/switch') result = { ok: true, email: 'second@gmail.com' };
+    if (route === '/api/accounts/capture') result = { ok: true, id: 'second', email: 'second@gmail.com', created: true };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.end(JSON.stringify(result));
   });
@@ -149,10 +160,26 @@ async function main() {
     await click('modalCloseBtn'); await waitFor(`!(${visible})`);
     await click('launchBtn'); await waitFor(visible);
     await click('pathModal'); await waitFor(`!(${visible})`);
-    await click('updateBtn');
-    await waitFor("document.getElementById('updateActionText').textContent === '↻ 检查更新'");
-    assert.ok(calls.some(call => call.route === '/api/update'));
-    console.log('PASS: launcher initialization, theme, target switching, launch, running lock, failure recovery, modal save/browse/reset/dismiss, polling preserves input, update');
+    // Account panel: list rendering, active badge, capture and switch flows.
+    await waitFor("document.getElementById('accountsCard').style.display === ''");
+    assert.equal(await evaluate("document.getElementById('currentAccountEmail').textContent"), 'active@gmail.com');
+    assert.equal(await evaluate("document.querySelectorAll('#accountList .account-item').length"), 2);
+    assert.equal(await evaluate("document.querySelectorAll('#accountList .account-item.active').length"), 1);
+    await evaluate("window.confirm = () => true");
+    await evaluate("[...document.querySelectorAll('#accountList .account-item .account-btn')].find(b => b.textContent.includes('切换')).click()");
+    await waitFor("[...document.querySelectorAll('#consoleBox .log-line')].some(l => l.textContent.includes('已切换到账号'))");
+    assert.ok(calls.some(call => call.route === '/api/accounts/switch' && call.input.id === 'second'));
+    calls.length = 0;
+    await evaluate("document.querySelector('.account-actions [data-action=capture-account]').click()");
+    await waitFor("[...document.querySelectorAll('#consoleBox .log-line')].some(l => l.textContent.includes('已保存账号'))");
+    assert.ok(calls.some(call => call.route === '/api/accounts/capture'));
+    calls.length = 0;
+    await evaluate("document.querySelector('.account-actions [data-action=add-account]').click()");
+    await waitFor("document.getElementById('accountModal').style.display === 'flex'");
+    await click('finishAddAccountBtn');
+    await waitFor("document.getElementById('accountModal').style.display === 'none'");
+    assert.ok(calls.some(call => call.route === '/api/accounts/capture'));
+    console.log('PASS: launcher initialization, theme, target switching, launch, running lock, failure recovery, modal save/browse/reset/dismiss, polling preserves input, accounts panel');
   } finally {
     if (socket) { try { await socket.command('Browser.close'); } catch {} socket.close(); }
     if (browser.exitCode === null) browser.kill();

@@ -103,14 +103,33 @@ function createApi(app) {
         const result = await app.session.launch();
         return json(response, result, result.ok ? 200 : 409);
       }
+      if (method === 'GET' && route === '/api/accounts') {
+        return json(response, await app.accounts.list());
+      }
+      if (method === 'POST' && route === '/api/accounts/capture') {
+        const data = await readBody(request);
+        return json(response, await app.accounts.capture(data.email));
+      }
+      if (method === 'POST' && route === '/api/accounts/switch') {
+        const data = await readBody(request);
+        const result = await app.switchAccount(data.id);
+        return json(response, result, result.ok ? 200 : 409);
+      }
+      if (method === 'POST' && route === '/api/accounts/remove') {
+        const data = await readBody(request);
+        return json(response, await app.accounts.remove(data.id));
+      }
+      if (method === 'POST' && route === '/api/accounts/import') {
+        const data = await readBody(request);
+        return json(response, await app.accounts.importFrom(data.path));
+      }
+      if (method === 'POST' && route === '/api/accounts/export') {
+        const data = await readBody(request);
+        return json(response, await app.accounts.exportTo(data.id, data.path));
+      }
       if (method === 'POST' && route === '/api/clean-and-launch') {
         const result = await app.session.cleanAndLaunch();
         return json(response, result, result.ok ? 200 : 409);
-      }
-      if (method === 'POST' && route === '/api/update') {
-        const data = await readBody(request);
-        const result = await app.updater.checkAndApply({ manifestUrl: data.manifestUrl });
-        return json(response, result);
       }
       if (method === 'POST' && route === '/api/theme') {
         const data = await readBody(request);
@@ -126,8 +145,12 @@ function createApi(app) {
       return json(response, { ok: false, error: 'not found', url: request.url }, 404);
     } catch (error) {
       app.events.log('SYSTEM', error.message, 'tag-warn');
-      if (!response.headersSent) json(response, { ok: false, error: error.message }, 400);
-      else response.end();
+      if (!response.headersSent) {
+        const payload = { ok: false, error: error.message };
+        if (error.code) payload.code = error.code;
+        if (error.suggestion) payload.suggestion = error.suggestion;
+        json(response, payload, 400);
+      } else response.end();
     }
   });
   return {

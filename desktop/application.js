@@ -6,6 +6,7 @@ const { Session } = require('../core/session');
 const { writeJson } = require('../core/storage');
 const { loadDictionary } = require('../features/i18n');
 const { Updater } = require('../features/updater');
+const { Accounts } = require('../features/accounts');
 const { CdpHub } = require('../adapters/desktop/cdp');
 const { rendererSource } = require('../adapters/desktop/renderer');
 const { createDesktopAdapter } = require('../adapters/desktop');
@@ -21,7 +22,9 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
   const desktop = createDesktopAdapter(testMode);
   let dictionary = loadDictionary(rootDir, dataDir);
   const host = createHost({ native, testMode, events });
-  const contextMonitor = new ContextMonitor(new LanguageService({ profile: desktop.profile }));
+  const languageService = new LanguageService({ profile: desktop.profile });
+  const contextMonitor = new ContextMonitor(languageService);
+  const accounts = new Accounts({ dataDir, events });
   let session;
   let lastStatus = '';
   const cdp = new CdpHub({
@@ -59,7 +62,7 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
   });
   let closing;
   const app = {
-    rootDir, dataDir, events, settings, desktop, host, cdp, session, contextMonitor, updater,
+    rootDir, dataDir, events, settings, desktop, host, cdp, session, contextMonitor, updater, accounts,
     status() {
       const currentSettings = settings.get();
       const allTargets = desktop.discoverAllTargets ? desktop.discoverAllTargets(currentSettings) : {};
@@ -107,6 +110,26 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
         events.publish(app.status());
       }
       return next;
+    },
+    // Account switch orchestration: stop Antigravity (a live daemon would
+    // overwrite the credential back), apply the profile, relaunch if it ran.
+    async switchAccount(id) {
+      const state = await accounts.list();
+      if (!state.supported) return { ok: false, error: '当前平台不支持账号切换（仅 Windows）', code: 'UNSUPPORTED' };
+      const target = state.accounts.find(account => account.id === id);
+      if (!target) return { ok: false, error: '账号档案不存在', code: 'NOT_FOUND' };
+      if (state.current?.email && state.current.email === target.email) return { ok: true, already: true, email: target.email };
+      const wasRunning = session.phase === 'running';
+      const stopResult = await session.cleanStop('账号切换');
+      if (!stopResult.ok && stopResult.code !== 'TARGET_NOT_FOUND') return stopResult;
+      const result = await accounts.switchTo(id);
+      if (!result.ok) return result;
+      if (wasRunning) {
+        const launched = await session.launch();
+        if (!launched.ok) return { ...launched, error: `账号已切换为 ${result.email}，但启动 Antigravity 失败: ${launched.error}` };
+        return { ...launched, switchedEmail: result.email };
+      }
+      return { ...result, ok: true };
     },
     async start() {
       const port = await api.listen(native ? 0 : 19823);

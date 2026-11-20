@@ -1,5 +1,16 @@
 # EasyAntigravity 更新日志
 
+## v4.1.0 (2026-11-16)
+
+- 重点：**多账号管理**——Google 账号档案化（DPAPI 加密存储）、一键切换（进程清理 → 凭证写回 → 自动重启，已双账号实机验证）、添加账号引导、导入导出与删除。
+- 新增 `features/accounts.js`（档案存储）与 `adapters/desktop/credential.js`（Windows 凭据适配）；档案明文头与加密体分离，列表读取不解密。
+- `Session` 新增 `cleanStop`：切换前以与"清理并重新启动"相同的校验停净 AG（含语言服务 daemon，防止旧 token 写回），不重启。
+- API 新增 `/api/accounts`、`/api/accounts/capture|switch|remove|import|export`。
+- **移除"检查更新"**：自建 fork 不接入上游热更新通道（防止官方 manifest 覆盖本地改动），顶栏只保留静态版本徽章。
+- 账号功能仅 Windows；macOS / Linux 隐藏入口。多账号轮换的 Google 服务条款风险自担。
+
+详细说明见 [4.1.0 发布说明](docs/RELEASE-v4.1.0.md)。
+
 ## v4.0.5 Lite (2026-11-12)
 
 - 重点：应对 AG 退出后 sidecar 等进程残留导致的启动冲突，提供弹窗内“清理并重新启动”，运行中点击原按钮也可处理。

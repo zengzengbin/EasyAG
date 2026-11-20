@@ -51,6 +51,28 @@ class LanguageService {
           try { server = serverFromDiscovery(await this.readLog(file, 'utf8'), rows); break; }
           catch { /* Try the next known host log path; do not expose paths or credentials. */ }
         }
+        // The startup "listening on random port" line rotates out of the log
+        // tail on long sessions (business traffic alone pushes it beyond the
+        // read window). Fall back to probing the PID-owned ports directly,
+        // the same verified pattern as the IDE branch above.
+        if (!server && rows.length === 1) {
+          const row = rows[0];
+          const csrf = row.command?.match(/--csrf_token(?:=|\s+)"?([^\s"]+)/)?.[1];
+          if (csrf) {
+            let found = 0;
+            for (const port of [...row.ports].slice(0, 16)) {
+              if (generation !== this.generation) throw new Error('采集已取消');
+              if (!Number.isInteger(port) || port < 1 || port > 65535) continue;
+              const candidate = { pid: row.pid, port, csrf };
+              try {
+                const result = await this.request(candidate, 'GetUserStatus', {}, AbortSignal.timeout(2500));
+                if (typeof result?.userStatus?.email === 'string' && result.userStatus.email.trim()) { server = candidate; found++; }
+              } catch { /* Only the PID-owned HTTP port speaks the read-only service. */ }
+            }
+            // A hub backend answers on exactly one HTTP port; ambiguity fails closed.
+            if (found > 1) server = null;
+          }
+        }
       }
       if (!server) throw new Error(rows.length > 1 ? '多个 AG 后台，暂不采集' : '等待 AG 本地统计接口');
       if (generation !== this.generation) throw new Error('采集已取消');

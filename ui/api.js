@@ -9,7 +9,9 @@ export async function request(route, { body, method = body === undefined ? 'GET'
       signal: controller.signal
     });
     const data = await response.json();
-    if (!response.ok || data?.ok === false) throw Object.assign(new Error(data?.error || `请求失败 (${response.status})`), { code: data?.code });
+    if (!response.ok || data?.ok === false) {
+      throw Object.assign(new Error(data?.error || `请求失败 (${response.status})`), { code: data?.code, suggestion: data?.suggestion });
+    }
     return data;
   } finally { clearTimeout(timeout); }
 }
@@ -22,7 +24,12 @@ export const api = {
   setTargetPath: ({ target, path }) => request('/api/set-target-path', { body: { target, path } }),
   launch: () => request('/api/launch', { method: 'POST' }),
   cleanAndLaunch: () => request('/api/clean-and-launch', { method: 'POST', timeoutMs: 60000 }),
-  checkUpdate: body => request('/api/update', { body: body || {}, method: 'POST', timeoutMs: 60000 }),
   setTheme: theme => request('/api/theme', { body: { theme }, method: 'POST' }),
-  hide: () => request('/api/hide', { method: 'POST' })
+  hide: () => request('/api/hide', { method: 'POST' }),
+  accounts: () => request('/api/accounts', { timeoutMs: 60000 }),
+  captureAccount: email => request('/api/accounts/capture', { body: email ? { email } : {}, timeoutMs: 60000 }),
+  switchAccount: id => request('/api/accounts/switch', { body: { id }, method: 'POST', timeoutMs: 120000 }),
+  removeAccount: id => request('/api/accounts/remove', { body: { id }, method: 'POST', timeoutMs: 60000 }),
+  importAccount: path => request('/api/accounts/import', { body: { path }, method: 'POST', timeoutMs: 60000 }),
+  exportAccount: (id, path) => request('/api/accounts/export', { body: { id, path }, method: 'POST', timeoutMs: 60000 })
 };

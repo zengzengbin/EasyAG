@@ -93,6 +93,51 @@ test('IDE probes only PID-owned ports and validates a read-only service; ambiguo
   assert.equal(received.length, 1, 'Multiple backends must not trigger speculative sampling');
 });
 
+test('Hub falls back to port probing when the startup line rotates out of the log tail', async t => {
+  // 日志尾部已无 "listening on random port" 行（长会话被业务日志冲出）。
+  const received = [];
+  const server = http.createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
+    received.push({ path: req.url, token: req.headers['x-codeium-csrf-token'] });
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ userStatus: { email: 'hub@example.invalid' } }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const port = server.address().port;
+  const row = { pid: 30600, command: 'language_server.exe --standalone --csrf_token hubsecret', ports: new Set([port, port + 1]) };
+  const readLog = async () => 'ERROR: I1116 18:28:10 business log without any listening line\n';
+  const client = new LanguageService({ target: 'hub', profile: 'ignored', processes: async () => [row], readLog });
+  assert.equal((await client.discover()).port, port, 'Port probing must rescue discovery when the log hint is gone');
+  assert.equal(received[0].token, 'hubsecret');
+  client.reset();
+  // 多个后台实例仍拒绝猜测（与 serverFromDiscovery 同一语义）。
+  client.processes = async () => [row, { ...row, pid: 30601 }];
+  await assert.rejects(client.discover(), /多个/);
+  // 全部端口探不通报错语义不变。
+  client.reset();
+  client.processes = async () => [row];
+  client.request = () => Promise.reject(new Error('refused'));
+  await assert.rejects(client.discover(), /等待 AG 本地统计接口/);
+});
+
+test('Hub ambiguous port probes fail closed instead of guessing', async t => {
+  const servers = [];
+  try {
+    for (let i = 0; i < 2; i++) {
+      const server = http.createServer((req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ userStatus: { email: 'hub@example.invalid' } }));
+      });
+      server.listen(0, '127.0.0.1'); await once(server, 'listening');
+      servers.push(server);
+    }
+    const row = { pid: 7, command: '--standalone --csrf_token s', ports: new Set(servers.map(s => s.address().port)) };
+    const client = new LanguageService({ target: 'hub', profile: 'ignored', processes: async () => [row], readLog: async () => 'no hint' });
+    await assert.rejects(client.discover(), /等待 AG 本地统计接口/, 'Two answering ports must refuse rather than pick one');
+  } finally { for (const s of servers) { s.closeAllConnections(); s.close(); } }
+});
+
 test('IDE bridge rechecks active conversation before delivery on a same-URL switch', async () => {
   const f = composer(), delivered = [];
   let resolve;

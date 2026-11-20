@@ -3363,5 +3363,18 @@
   "Add shortcut for Jump to Next Prompt": "为“跳到下一条提示词”添加快捷键",
   "Shortcut Alt+Shift+P for Pin / Unpin Conversation": "“置顶／取消置顶对话”的快捷键：Alt+Shift+P",
   "Remove shortcut Alt+Shift+P for Pin / Unpin Conversation": "移除“置顶／取消置顶对话”的快捷键 Alt+Shift+P",
-  "Add shortcut for Pin / Unpin Conversation": "为“置顶／取消置顶对话”添加快捷键"
+  "Add shortcut for Pin / Unpin Conversation": "为“置顶／取消置顶对话”添加快捷键",
+  "Local Checkout": "本地检出",
+  "Announcements and tips": "公告与提示",
+  "Start Voice mode": "开始语音模式",
+  "Search Conversations": "搜索对话",
+  "Good to see you": "很高兴见到你",
+  "What's next?": "接下来做什么？",
+  "See all ({count})": "查看全部（{count}）",
+  "Show {count} breakdown": "显示 {count} 项明细",
+  "Rules: {n} tokens": "规则：{n} tokens",
+  "Skills: {n} tokens": "技能：{n} tokens",
+  "Other Customizations": "其他自定义",
+  "Windows Subsystem for Linux": "适用于 Linux 的 Windows 子系统（WSL）",
+  "Run the app against a Linux environment. Connecting relaunches the app into the selected WSL distro.": "在 Linux 环境中运行应用。连接后会把应用重新启动到所选的 WSL 发行版。"
 }
