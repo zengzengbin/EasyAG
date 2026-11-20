@@ -66,6 +66,11 @@ async function start() {
       method: 'POST', headers: { Origin: 'https://unrelated.example' }, body: JSON.stringify({ port: 1234 })
     });
     assert.equal(crossOrigin.status, 403, '外部网页不得修改本地设置');
+    const invalidMeta = await fetch(app.url + '/api/accounts/meta', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: '../escape', alias: 'x' })
+    });
+    assert.equal(invalidMeta.status, 400, '账号 ID 不得逃出档案目录');
+    assert.match((await invalidMeta.json()).error, /无效的账号 ID/);
     const invalidConfig = await fetch(app.url + '/api/config', { method: 'POST', body: JSON.stringify({ port: 0 }) });
     assert.equal(invalidConfig.status, 400);
     assert.equal((await (await fetch(app.url + '/api/status')).json()).port, 7890);

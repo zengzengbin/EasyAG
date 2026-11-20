@@ -12,6 +12,10 @@ const PROFILE_VERSION = 1;
 const PROFILE_EXT = '.agprofile';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const normalizeEmail = value => String(value || '').trim().toLowerCase();
+const normalizeMeta = (value, limit) => {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text ? text.slice(0, limit) : null;
+};
 
 // Stable per-account marker stored in the plaintext header. Antigravity 2.33+
 // no longer writes id_token_email into the credential blob, so a hash of the
@@ -106,8 +110,11 @@ class Accounts {
             id: entry.slice(0, -PROFILE_EXT.length),
             email: header.email,
             authMethod: header.authMethod || null,
+            alias: typeof header.alias === 'string' && header.alias ? header.alias : null,
+            note: typeof header.note === 'string' && header.note ? header.note : null,
             capturedAt: header.capturedAt || null,
             updatedAt: header.updatedAt || null,
+            lastUsedAt: header.lastUsedAt || null,
             active: Boolean(current?.email && normalizeEmail(header.email) === normalizeEmail(current.email))
           });
         } catch (error) {
@@ -164,8 +171,11 @@ class Accounts {
       email,
       authMethod: json.auth_method || null,
       refreshHash: tokenHash,
+      alias: existing?.alias || null,
+      note: existing?.note || null,
       capturedAt: existing?.capturedAt || now,
       updatedAt: now,
+      lastUsedAt: now,
       credential: { userName: live.userName, type: live.type, persist: live.persist, blobB64: live.blobB64 },
       userScope: this.credential.readUserScope()
     });
@@ -189,7 +199,7 @@ class Accounts {
   // Apply a stored profile to the live credential. Caller must ensure Antigravity
   // is fully stopped; a running daemon would overwrite the token back.
   async switchTo(id) {
-    const file = path.join(this.dir, `${id}${PROFILE_EXT}`);
+    const file = this._profilePath(id);
     const profile = await this._loadProfile(file);
     if (!profile.refreshHash) {
       // One-time backfill so later email-less refreshes still map to this profile.
@@ -205,16 +215,60 @@ class Accounts {
     }
     await this.credential.writeAntigravityCredential(profile.credential);
     if (profile.userScope) this.credential.writeUserScope(profile.userScope);
+    this._updateHeader(file, { lastUsedAt: this.now() });
     this.log(`已切换账号: ${profile.email}，重新启动 Antigravity 后生效`);
     return { ok: true, email: profile.email };
   }
 
   async remove(id) {
-    const file = path.join(this.dir, `${id}${PROFILE_EXT}`);
+    const file = this._profilePath(id);
     const header = readHeaderFile(file);
     fs.unlinkSync(file);
     this.log(`已删除账号档案: ${header.email}`);
     return { ok: true, email: header.email };
+  }
+
+  // Display metadata lives in the plaintext header so list() never decrypts.
+  setMeta(id, { alias, note } = {}) {
+    const file = this._profilePath(id);
+    const header = readHeaderFile(file);
+    const patch = {};
+    if (alias !== undefined) {
+      const value = typeof alias === 'string' ? alias.trim() : '';
+      if (value.length > 32) throw new Error('别名最多 32 个字符');
+      patch.alias = value || null;
+    }
+    if (note !== undefined) {
+      const value = typeof note === 'string' ? note.trim() : '';
+      if (value.length > 200) throw new Error('备注最多 200 个字符');
+      patch.note = value || null;
+    }
+    if (Object.keys(patch).length) {
+      this._updateHeader(file, patch);
+      this.log(`账号 ${header.email} 的显示信息已更新`);
+    }
+    const next = this._readHeader(id);
+    return { ok: true, id, email: header.email, alias: next?.alias || null, note: next?.note || null };
+  }
+
+  touch(email) {
+    const id = slugify(email);
+    if (!this._readHeader(id)) return null;
+    const lastUsedAt = this.now();
+    this._updateHeader(this._profilePath(id), { lastUsedAt });
+    return lastUsedAt;
+  }
+
+  // Header-only update: payloadB64 is carried over byte-for-byte, never decrypted
+  // or re-encrypted. Identity fields cannot be changed through this path.
+  _updateHeader(file, patch) {
+    const header = readHeaderFile(file);
+    const next = { ...header };
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === 'payloadB64' || key === 'email' || key === 'version') continue;
+      next[key] = value;
+    }
+    writeBufferAtomic(file, Buffer.from(JSON.stringify(next, null, 2) + '\n', 'utf8'));
   }
 
   // Import a plaintext profile JSON (produced by exportTo) as a new profile.
@@ -237,8 +291,11 @@ class Accounts {
       email: imported.email,
       authMethod: imported.authMethod || json.auth_method || null,
       refreshHash: refreshTokenHash(json),
+      alias: normalizeMeta(imported.alias, 32),
+      note: normalizeMeta(imported.note, 200),
       capturedAt: imported.capturedAt || now,
       updatedAt: now,
+      lastUsedAt: typeof imported.lastUsedAt === 'string' ? imported.lastUsedAt : null,
       credential: {
         userName: imported.credential.userName || 'antigravity',
         type: Number.isFinite(imported.credential.type) ? imported.credential.type : 1,
@@ -253,13 +310,20 @@ class Accounts {
 
   // Export a profile as plaintext JSON. Contains refresh tokens: user responsibility.
   async exportTo(id, filePath) {
-    const file = path.join(this.dir, `${id}${PROFILE_EXT}`);
+    const file = this._profilePath(id);
     const profile = await this._loadProfile(file);
     const { credential, userScope, ...header } = profile;
     fs.mkdirSync(path.dirname(path.resolve(filePath)), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify({ ...header, credential, userScope }, null, 2) + '\n', 'utf8');
     this.log(`已导出账号 ${profile.email}（明文凭证，注意保管）`);
     return { ok: true, email: profile.email, path: filePath };
+  }
+
+  // Native account ids come from emails; reject path separators so a crafted
+  // API id can never escape the accounts directory.
+  _profilePath(id) {
+    if (typeof id !== 'string' || !id || id.includes('..') || /[\\/]/.test(id)) throw new Error('无效的账号 ID');
+    return path.join(this.dir, `${id}${PROFILE_EXT}`);
   }
 
   _readHeader(id) {

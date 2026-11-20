@@ -104,11 +104,18 @@ function createApi(app) {
         return json(response, result, result.ok ? 200 : 409);
       }
       if (method === 'GET' && route === '/api/accounts') {
-        return json(response, await app.accounts.list());
+        return json(response, app.quotaService.decorate(await app.accounts.list()));
       }
       if (method === 'POST' && route === '/api/accounts/capture') {
         const data = await readBody(request);
         return json(response, await app.accounts.capture(data.email));
+      }
+      if (method === 'POST' && route === '/api/accounts/meta') {
+        const data = await readBody(request);
+        return json(response, await app.accounts.setMeta(data.id, { alias: data.alias, note: data.note }));
+      }
+      if (method === 'POST' && route === '/api/quota/refresh') {
+        return json(response, await app.quotaService.refresh({ force: true }));
       }
       if (method === 'POST' && route === '/api/accounts/switch') {
         const data = await readBody(request);
@@ -117,7 +124,9 @@ function createApi(app) {
       }
       if (method === 'POST' && route === '/api/accounts/remove') {
         const data = await readBody(request);
-        return json(response, await app.accounts.remove(data.id));
+        const result = await app.accounts.remove(data.id);
+        app.quotaService.forget(result.email);
+        return json(response, result);
       }
       if (method === 'POST' && route === '/api/accounts/import') {
         const data = await readBody(request);

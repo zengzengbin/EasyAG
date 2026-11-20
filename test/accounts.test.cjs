@@ -76,7 +76,9 @@ test('capture stores an encrypted profile and list marks the active account', as
   assert.equal(state.current.email, 'a@gmail.com');
   assert.deepEqual(state.accounts, [{
     id: 'a@gmail.com', email: 'a@gmail.com', authMethod: 'consumer',
-    capturedAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', active: true
+    alias: null, note: null,
+    capturedAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    lastUsedAt: '2026-01-01T00:00:00Z', active: true
   }]);
 });
 
@@ -147,12 +149,15 @@ test('importFrom validates payload and exportTo round-trips through plaintext JS
   const credential = makeCredential({ blobB64: fakeCredentialBlob('a@gmail.com'), scope: 'u-a' });
   const { accounts, dataDir } = makeAccounts({ credential });
   await accounts.capture();
+  accounts.setMeta('a@gmail.com', { alias: 'A 号', note: '导出测试' });
 
   const exportPath = path.join(dataDir, 'exported.json');
   await accounts.exportTo('a@gmail.com', exportPath);
   const exported = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
   assert.equal(exported.email, 'a@gmail.com');
   assert.equal(exported.userScope, 'u-a');
+  assert.equal(exported.alias, 'A 号');
+  assert.equal(exported.note, '导出测试');
   assert.ok(exported.credential.blobB64);
 
   const { accounts: other } = makeAccounts({ credential: makeCredential() });
@@ -160,6 +165,8 @@ test('importFrom validates payload and exportTo round-trips through plaintext JS
   assert.deepEqual({ ok: imported.ok, email: imported.email, created: imported.created }, { ok: true, email: 'a@gmail.com', created: true });
   const state = await other.list();
   assert.equal(state.accounts.length, 1);
+  assert.equal(state.accounts[0].alias, 'A 号');
+  assert.equal(state.accounts[0].note, '导出测试');
 
   fs.writeFileSync(exportPath, '{"email":"x@gmail.com"}');
   await assert.rejects(() => other.importFrom(exportPath), /缺少账号凭证或邮箱字段/);
@@ -266,6 +273,46 @@ test('switchTo backfills a refresh hash for profiles saved before it existed', a
   credential.store.lastLoginEmail = 'b@gmail.com';
   await accounts.switchTo('a@gmail.com');
   assert.match(JSON.parse(fs.readFileSync(file, 'utf8')).refreshHash, /^[0-9a-f]{64}$/);
+});
+
+test('setMeta updates only the plaintext header and validates lengths', async () => {
+  const credential = makeCredential({ blobB64: fakeCredentialBlob('a@gmail.com') });
+  const { accounts, dataDir } = makeAccounts({ credential });
+  await accounts.capture();
+  const file = path.join(dataDir, 'accounts', 'a@gmail.com.agprofile');
+  const before = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+  const result = accounts.setMeta('a@gmail.com', { alias: '  工作号  ', note: '主力账号' });
+  assert.deepEqual({ alias: result.alias, note: result.note }, { alias: '工作号', note: '主力账号' });
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(after.payloadB64, before.payloadB64, 'payload stays byte-identical');
+  assert.equal(after.alias, '工作号');
+  assert.equal(after.note, '主力账号');
+
+  const state = await accounts.list();
+  assert.equal(state.accounts[0].alias, '工作号');
+  assert.equal(state.accounts[0].note, '主力账号');
+
+  accounts.setMeta('a@gmail.com', { alias: '' });
+  assert.equal((await accounts.list()).accounts[0].alias, null, 'empty alias falls back to the email');
+  assert.throws(() => accounts.setMeta('a@gmail.com', { alias: 'x'.repeat(33) }), /别名最多 32/);
+  assert.throws(() => accounts.setMeta('a@gmail.com', { note: 'x'.repeat(201) }), /备注最多 200/);
+});
+
+test('touch records the last-used time without touching the encrypted payload', async () => {
+  const credential = makeCredential({ blobB64: fakeCredentialBlob('a@gmail.com') });
+  const { accounts, dataDir } = makeAccounts({ credential });
+  await accounts.capture();
+  const file = path.join(dataDir, 'accounts', 'a@gmail.com.agprofile');
+  const before = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+  accounts.now = () => '2026-02-02T00:00:00Z';
+  assert.equal(accounts.touch('a@gmail.com'), '2026-02-02T00:00:00Z');
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(after.lastUsedAt, '2026-02-02T00:00:00Z');
+  assert.equal(after.payloadB64, before.payloadB64);
+  assert.equal((await accounts.list()).accounts[0].lastUsedAt, '2026-02-02T00:00:00Z');
+  assert.equal(accounts.touch('missing@gmail.com'), null);
 });
 
 test('capture without a live login and blobs without email fail closed', async () => {

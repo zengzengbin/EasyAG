@@ -66,8 +66,10 @@ function renderPhase(next, targetName = activeTargetName) {
   button.classList.toggle('busy', busy);
   if (element('proxyToggle')) element('proxyToggle').disabled = locked;
   document.querySelectorAll('[data-target]').forEach(control => { control.disabled = locked; });
-  // 启动序列期间禁用账号切换，避免与进程清理竞争。
+  // 启动序列期间禁用账号切换与额度刷新，避免与进程清理竞争。
   document.querySelectorAll('.account-item .account-btn').forEach(control => { control.disabled = busy; });
+  const quotaButton = element('refreshQuotaBtn');
+  if (quotaButton) quotaButton.disabled = busy;
   const proxyEnabled = element('proxyToggle') ? element('proxyToggle').checked : true;
   document.querySelectorAll('[data-port]').forEach(control => { control.disabled = locked || !proxyEnabled; });
   element('proxyPortInput').disabled = locked || !proxyEnabled;
@@ -380,13 +382,123 @@ let accountsBusy = false;
 
 async function loadAccounts() {
   const card = element('accountsCard');
+  const quotaCard = element('quotaCard');
   if (!card || accountsBusy) return;
   try {
     const state = await api.accounts();
-    if (!state.supported) { card.style.display = 'none'; return; }
+    if (!state.supported) {
+      card.style.display = 'none';
+      if (quotaCard) quotaCard.style.display = 'none';
+      return;
+    }
     card.style.display = '';
+    if (quotaCard) quotaCard.style.display = '';
     renderAccounts(state);
+    renderQuota(state);
   } catch (error) { report(error); }
+}
+
+function accountAlias(account) {
+  return account && typeof account.alias === 'string' && account.alias.trim() ? account.alias.trim() : null;
+}
+
+function accountLabel(account) {
+  return accountAlias(account) || account?.email || '未知账号';
+}
+
+function allQuotaBuckets(quota) {
+  if (!quota || typeof quota !== 'object') return [];
+  const result = [];
+  const seen = new Set();
+  const push = bucket => {
+    if (!bucket || typeof bucket !== 'object') return;
+    const key = `${bucket.id || ''}|${bucket.name || ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(bucket);
+  };
+  if (Array.isArray(quota.buckets)) quota.buckets.forEach(push);
+  for (const group of Array.isArray(quota.groups) ? quota.groups : []) {
+    if (!Array.isArray(group?.buckets)) continue;
+    for (const bucket of group.buckets) push({ ...bucket, group: group.name || '' });
+  }
+  return result;
+}
+
+function quotaFraction(bucket) {
+  return typeof bucket?.remainingFraction === 'number' && Number.isFinite(bucket.remainingFraction)
+    ? bucket.remainingFraction : null;
+}
+
+function quotaMin(quota) {
+  const values = allQuotaBuckets(quota)
+    .filter(bucket => !bucket.disabled && quotaFraction(bucket) !== null)
+    .map(bucket => quotaFraction(bucket));
+  return values.length ? Math.min(...values) : null;
+}
+
+function quotaNextReset(quota) {
+  return allQuotaBuckets(quota)
+    .map(bucket => bucket.resetAt)
+    .filter(value => typeof value === 'string' && value)
+    .sort()[0] || null;
+}
+
+function percentText(fraction) {
+  return fraction === null ? '未知' : `${Math.round(fraction * 100)}%`;
+}
+
+function ageText(iso) {
+  const time = Date.parse(iso);
+  if (!Number.isFinite(time)) return '';
+  const minutes = Math.floor(Math.max(0, Date.now() - time) / 60000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
+}
+
+function resetText(iso) {
+  const time = Date.parse(iso);
+  if (!Number.isFinite(time)) return null;
+  const diff = time - Date.now();
+  if (diff <= 0) return '即将重置';
+  const minutes = Math.ceil(diff / 60000);
+  if (minutes < 60) return `${minutes} 分钟后重置`;
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 48) return `${hours} 小时后重置`;
+  return `${Math.ceil(hours / 24)} 天后重置`;
+}
+
+function compactReset(iso) {
+  const time = Date.parse(iso);
+  if (!Number.isFinite(time)) return '—';
+  const minutes = Math.ceil(Math.max(0, time - Date.now()) / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.ceil(minutes / 60);
+  return hours < 48 ? `${hours}h` : `${Math.ceil(hours / 24)}d`;
+}
+
+function toneOf(fraction) {
+  if (fraction === null) return 'unknown';
+  return fraction >= 0.5 ? 'ok' : fraction >= 0.2 ? 'warn' : 'danger';
+}
+
+function microBars(quota) {
+  const bar = document.createElement('div');
+  bar.className = 'micro-quota';
+  for (const bucket of allQuotaBuckets(quota).slice(0, 6)) {
+    const item = document.createElement('i');
+    item.className = 'micro-bar';
+    const fraction = quotaFraction(bucket);
+    if (bucket.disabled) item.classList.add('disabled');
+    else if (fraction === null) item.classList.add('unknown');
+    else item.style.background = fraction >= 0.5 ? 'var(--green)' : fraction >= 0.2 ? 'var(--yellow)' : 'var(--red)';
+    item.title = `${bucket.name || '额度'}：${bucket.disabled ? '已禁用' : percentText(fraction)}`;
+    bar.appendChild(item);
+  }
+  return bar;
 }
 
 function renderAccounts(state) {
@@ -395,52 +507,111 @@ function renderAccounts(state) {
   const avatar = element('currentAccountAvatar');
   const list = element('accountList');
   if (!list) return;
+  const active = state.accounts.find(account => account.active) || null;
   if (state.current) {
-    emailEl.textContent = state.current.email || '未知账号';
-    avatar.textContent = state.current.email ? state.current.email[0].toUpperCase() : '👤';
-    badge.textContent = '· 已登录';
+    emailEl.textContent = active ? accountLabel(active) : (state.current.email || '未知账号');
+    emailEl.title = state.current.email || '';
+    avatar.textContent = (accountLabel(active) || state.current.email || '?')[0].toUpperCase();
+    badge.textContent = '已登录';
     badge.style.color = 'var(--green)';
   } else {
     emailEl.textContent = '未检测到登录（请先启动并登录 Antigravity）';
+    emailEl.title = '';
     avatar.textContent = '👤';
-    badge.textContent = '· 未登录';
+    badge.textContent = '未登录';
     badge.style.color = 'var(--text-dark)';
   }
   list.replaceChildren();
   for (const account of state.accounts) {
     const row = document.createElement('div');
     row.className = 'account-item' + (account.active ? ' active' : '');
-    const label = document.createElement('span');
-    label.className = 'account-email';
-    label.title = `捕获于 ${account.capturedAt || '未知'} · 更新于 ${account.updatedAt || '未知'}`;
-    label.textContent = account.email + (account.active ? '（当前）' : '');
+    row.title = `捕获于 ${account.capturedAt || '未知'} · 更新于 ${account.updatedAt || '未知'}${account.lastUsedAt ? ` · 最近使用 ${ageText(account.lastUsedAt)}` : ''}`;
+
+    const mini = document.createElement('span');
+    mini.className = 'account-avatar-mini';
+    mini.textContent = (accountLabel(account) || '?')[0].toUpperCase();
+
+    const main = document.createElement('div');
+    main.className = 'account-main';
+    const line = document.createElement('div');
+    line.className = 'account-line';
+    const name = document.createElement('span');
+    name.className = 'account-name';
+    name.textContent = accountLabel(account);
+    line.appendChild(name);
+    if (account.active) {
+      const tag = document.createElement('span');
+      tag.className = 'account-current-tag';
+      tag.textContent = '当前';
+      line.appendChild(tag);
+    }
+    const sub = document.createElement('div');
+    sub.className = 'account-sub';
+    const parts = [];
+    if (accountAlias(account)) {
+      const email = document.createElement('span');
+      email.className = 'account-email';
+      email.textContent = account.email;
+      parts.push(email);
+    }
+    const min = quotaMin(account.quota);
+    const minEl = document.createElement('span');
+    minEl.className = 'account-quota-min';
+    minEl.textContent = account.quota ? (min === null ? '额度未知' : `最低 ${percentText(min)}`) : '无额度快照';
+    parts.push(minEl);
+    if (account.quota?.sampledAt) {
+      const age = document.createElement('span');
+      age.className = 'account-quota-age';
+      age.textContent = ageText(account.quota.sampledAt);
+      parts.push(age);
+    }
+    for (const part of parts) {
+      if (sub.childElementCount) {
+        const sep = document.createElement('span');
+        sep.className = 'sub-sep';
+        sub.appendChild(sep);
+      }
+      sub.appendChild(part);
+    }
+    main.append(line, sub, microBars(account.quota));
+
     const group = document.createElement('div');
     group.className = 'account-item-actions';
     if (!account.active) {
       const switchBtn = document.createElement('button');
       switchBtn.type = 'button';
       switchBtn.className = 'account-btn';
-      switchBtn.textContent = '⇄ 切换';
+      switchBtn.textContent = '⇄';
+      switchBtn.title = `切换到 ${accountLabel(account)}`;
+      switchBtn.setAttribute('aria-label', switchBtn.title);
       switchBtn.disabled = ['preparing', 'launching', 'cleaning'].includes(phase);
-      switchBtn.addEventListener('click', () => switchAccount(account.id, account.email));
+      switchBtn.addEventListener('click', () => switchAccount(account.id, account.email, accountAlias(account)));
       group.appendChild(switchBtn);
     }
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'account-btn';
+    editBtn.textContent = '✎';
+    editBtn.title = '编辑别名 / 备注';
+    editBtn.setAttribute('aria-label', editBtn.title);
+    editBtn.addEventListener('click', () => editAccountMeta(account));
     const exportBtn = document.createElement('button');
     exportBtn.type = 'button';
     exportBtn.className = 'account-btn';
-    exportBtn.textContent = '📤';
+    exportBtn.textContent = '↗';
     exportBtn.title = '导出为明文 JSON（含登录凭证，注意保管）';
+    exportBtn.setAttribute('aria-label', '导出账号');
     exportBtn.addEventListener('click', () => exportAccount(account.id, account.email));
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.className = 'account-btn danger';
-    removeBtn.textContent = '🗑';
+    removeBtn.textContent = '×';
     removeBtn.title = '删除此账号档案（不影响当前登录）';
+    removeBtn.setAttribute('aria-label', '删除账号');
     removeBtn.addEventListener('click', () => removeAccount(account.id, account.email));
-    group.appendChild(exportBtn);
-    group.appendChild(removeBtn);
-    row.appendChild(label);
-    row.appendChild(group);
+    group.append(editBtn, exportBtn, removeBtn);
+
+    row.append(mini, main, group);
     list.appendChild(row);
   }
   if (state.errors?.length) {
@@ -448,14 +619,142 @@ function renderAccounts(state) {
   }
 }
 
-async function switchAccount(id, email) {
+function quotaStat(value, label) {
+  const box = document.createElement('div');
+  box.className = 'quota-stat';
+  const number = document.createElement('b');
+  number.textContent = value;
+  const caption = document.createElement('span');
+  caption.textContent = label;
+  box.append(number, caption);
+  return box;
+}
+
+function quotaEmpty(text) {
+  const node = document.createElement('div');
+  node.className = 'quota-empty';
+  node.textContent = text;
+  return node;
+}
+
+function quotaRow(bucket) {
+  const row = document.createElement('div');
+  row.className = 'quota-row';
+  row.title = bucket.description || '';
+  const name = document.createElement('span');
+  name.className = 'quota-name';
+  const windowLabel = bucket.window === 'weekly' ? 'weekly' : bucket.window === '5h' ? '5h' : (bucket.window || '');
+  name.textContent = bucket.group
+    ? `${bucket.group}${windowLabel ? ` · ${windowLabel}` : ''}`
+    : (bucket.name || '额度');
+
+  const track = document.createElement('div');
+  track.className = 'quota-track';
+  const fill = document.createElement('div');
+  fill.className = 'quota-fill';
+  const fraction = quotaFraction(bucket);
+  if (bucket.disabled) fill.classList.add('disabled');
+  else if (fraction === null) fill.classList.add('unknown');
+  else {
+    fill.style.width = `${Math.round(fraction * 100)}%`;
+    const tone = toneOf(fraction);
+    if (tone !== 'ok') fill.classList.add(tone);
+  }
+  track.appendChild(fill);
+
+  const percent = document.createElement('span');
+  percent.className = 'quota-pct';
+  percent.textContent = bucket.disabled ? '已禁用' : percentText(fraction);
+
+  const reset = document.createElement('div');
+  reset.className = 'quota-reset';
+  const resetLabel = document.createElement('span');
+  resetLabel.textContent = resetText(bucket.resetAt) || '重置时间未知';
+  const note = document.createElement('span');
+  note.textContent = bucket.disabled ? '该窗口当前禁用' : (bucket.group ? '' : (bucket.window || ''));
+  reset.append(resetLabel, note);
+
+  row.append(name, track, percent, reset);
+  return row;
+}
+
+function renderQuota(state) {
+  const card = element('quotaCard');
+  if (!card) return;
+  const active = state.accounts.find(account => account.active) || null;
+  const quota = active?.quota || state.currentQuota || null;
+  const title = element('quotaTitle');
+  const stamp = element('quotaStamp');
+  const overview = element('quotaOverview');
+  const list = element('quotaList');
+  const footer = element('quotaUpdatedAt');
+  title.textContent = active ? accountLabel(active) : '当前账号';
+  if (!state.current) {
+    overview.replaceChildren();
+    list.replaceChildren(quotaEmpty('未检测到登录。启动并登录 Antigravity 后即可读取额度。'));
+    stamp.textContent = '';
+    footer.textContent = '';
+    return;
+  }
+  if (!quota) {
+    overview.replaceChildren();
+    list.replaceChildren(quotaEmpty('还没有额度快照。点击“刷新”读取当前账号额度。'));
+    stamp.textContent = '无快照';
+    footer.textContent = '只读本地 AG 接口，不会请求 Google';
+    return;
+  }
+  const buckets = allQuotaBuckets(quota);
+  const min = quotaMin(quota);
+  overview.replaceChildren(
+    quotaStat(min === null ? '—' : percentText(min), '最低剩余'),
+    quotaStat(String(buckets.length), '额度窗口'),
+    quotaStat(compactReset(quotaNextReset(quota)), '最近重置')
+  );
+  if (buckets.length) list.replaceChildren(...buckets.map(quotaRow));
+  else list.replaceChildren(quotaEmpty('接口未返回额度窗口，可能该账号没有可展示的额度组。'));
+  stamp.textContent = ageText(quota.sampledAt);
+  footer.textContent = `采样 ${new Date(quota.sampledAt).toLocaleString('zh-CN')} · 本地只读`;
+}
+
+let quotaBusy = false;
+async function refreshQuota() {
+  if (quotaBusy) return;
+  const button = element('refreshQuotaBtn');
+  quotaBusy = true;
+  if (button) button.disabled = true;
+  try {
+    const result = await api.refreshQuota();
+    if (result?.state === 'live') appendLog('QUOTA', `额度已更新：${allQuotaBuckets(result).length} 个窗口`, 'tag-proxy');
+    else if (result?.state === 'stale') appendLog('QUOTA', '额度接口暂不可用，显示上次快照', 'tag-warn');
+    else appendLog('QUOTA', '额度暂不可用：请确认 Antigravity 正在运行', 'tag-warn');
+    await loadAccounts();
+  } catch (error) { report(error); } finally {
+    quotaBusy = false;
+    if (button) button.disabled = ['preparing', 'launching', 'cleaning'].includes(phase);
+  }
+}
+
+async function editAccountMeta(account) {
+  const alias = window.prompt(`给账号 ${account.email} 设置显示名称（留空恢复邮箱）：`, accountAlias(account) || '');
+  if (alias === null) return;
+  const note = window.prompt('备注（可留空；取消则保留原备注）：', account.note || '');
+  const payload = { alias: alias.trim() };
+  if (note !== null) payload.note = note.trim();
+  try {
+    await api.setAccountMeta(account.id, payload);
+    await loadAccounts();
+  } catch (error) { report(error); }
+}
+
+async function switchAccount(id, email, alias) {
   if (accountsBusy) return;
-  if (!window.confirm(`切换到账号 ${email}？\n\nAntigravity 将被关闭并使用该账号的登录凭证重新启动，对话记录保留。`)) return;
+  const label = alias ? `${alias}（${email}）` : email;
+  if (!window.confirm(`切换到账号 ${label}？\n\nAntigravity 将被关闭并使用该账号的登录凭证重新启动，对话记录保留。`)) return;
   accountsBusy = true;
   renderPhase('cleaning');
   try {
     const result = await api.switchAccount(id);
-    appendLog('SYSTEM', result.already ? `账号 ${email} 已是当前登录` : `已切换到账号 ${email}，正在重新启动`, 'tag-proxy');
+    appendLog('SYSTEM', result.already ? `账号 ${label} 已是当前登录` : `已切换到账号 ${label}，正在重新启动`, 'tag-proxy');
     await loadAccounts();
   } catch (error) {
     report(error);
@@ -572,6 +871,7 @@ const actions = {
   'add-account': beginAddAccount,
   'finish-add-account': finishAddAccount,
   'dismiss-account': dismissAccountModal,
+  'refresh-quota': refreshQuota,
   'import-account': importAccount
 };
 
@@ -659,7 +959,7 @@ async function init() {
       const message = JSON.parse(event.data);
       renderStatus(message);
       if (message.category) appendLog(message.category, message.message, message.cls, message.at);
-      if (message.category === 'ACCOUNT') void loadAccounts();
+      if (message.category === 'ACCOUNT' || message.quotaUpdated) void loadAccounts();
     } catch (error) { report(error); }
   };
   pollTimer = setInterval(async () => {

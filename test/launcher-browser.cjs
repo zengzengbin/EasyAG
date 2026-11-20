@@ -60,14 +60,41 @@ async function main() {
     if (route === '/api/accounts') result = {
       supported: true,
       current: { email: 'active@gmail.com', authMethod: 'consumer', scope: 'u-1' },
+      currentQuota: {
+        sampledAt: new Date().toISOString(),
+        description: '',
+        buckets: [
+          { id: 'pro', name: 'Gemini Pro', remainingFraction: 0.72, resetAt: new Date(Date.now() + 3600000).toISOString(), disabled: false },
+          { id: 'claude', name: 'Claude', remainingFraction: 0.12, resetAt: new Date(Date.now() + 7200000).toISOString(), disabled: false }
+        ],
+        groups: []
+      },
       accounts: [
-        { id: 'active', email: 'active@gmail.com', authMethod: 'consumer', capturedAt: 't1', updatedAt: 't2', active: true },
-        { id: 'second', email: 'second@gmail.com', authMethod: 'consumer', capturedAt: 't1', updatedAt: 't2', active: false }
+        {
+          id: 'active', email: 'active@gmail.com', authMethod: 'consumer', alias: null, note: null,
+          capturedAt: 't1', updatedAt: 't2', lastUsedAt: 't3', active: true,
+          quota: {
+            sampledAt: new Date().toISOString(),
+            description: '',
+            buckets: [
+              { id: 'pro', name: 'Gemini Pro', remainingFraction: 0.72, resetAt: new Date(Date.now() + 3600000).toISOString(), disabled: false },
+              { id: 'claude', name: 'Claude', remainingFraction: 0.12, resetAt: new Date(Date.now() + 7200000).toISOString(), disabled: false }
+            ],
+            groups: []
+          }
+        },
+        { id: 'second', email: 'second@gmail.com', authMethod: 'consumer', alias: '备用号', note: '测试备注', capturedAt: 't1', updatedAt: 't2', lastUsedAt: null, active: false, quota: null }
       ],
       errors: []
     };
     if (route === '/api/accounts/switch') result = { ok: true, email: 'second@gmail.com' };
     if (route === '/api/accounts/capture') result = { ok: true, id: 'second', email: 'second@gmail.com', created: true };
+    if (route === '/api/accounts/meta') result = { ok: true, id: input.id, email: 'second@gmail.com', alias: input.alias, note: input.note };
+    if (route === '/api/quota/refresh') result = {
+      ok: true, state: 'live', email: 'active@gmail.com', sampledAt: new Date().toISOString(),
+      description: '', groups: [],
+      buckets: [{ id: 'pro', name: 'Gemini Pro', remainingFraction: 0.5, resetAt: null, disabled: false }]
+    };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.end(JSON.stringify(result));
   });
@@ -165,8 +192,21 @@ async function main() {
     assert.equal(await evaluate("document.getElementById('currentAccountEmail').textContent"), 'active@gmail.com');
     assert.equal(await evaluate("document.querySelectorAll('#accountList .account-item').length"), 2);
     assert.equal(await evaluate("document.querySelectorAll('#accountList .account-item.active').length"), 1);
+    assert.equal(await evaluate("document.getElementById('quotaCard').style.display"), '');
+    assert.equal(await evaluate("document.querySelectorAll('#quotaList .quota-row').length"), 2);
+    assert.equal(await evaluate("document.querySelectorAll('#quotaOverview .quota-stat').length"), 3);
+    assert.equal(await evaluate("document.querySelector('#accountList .account-item:not(.active) .account-name').textContent"), '备用号');
+    await evaluate("window.prompt = message => message.includes('显示名称') ? '工作号' : '新的备注'");
+    await evaluate("document.querySelectorAll('#accountList .account-item:not(.active) .account-btn')[1].click()");
+    await sleep(300);
+    assert.ok(calls.some(call => call.route === '/api/accounts/meta' && call.input.id === 'second' && call.input.alias === '工作号' && call.input.note === '新的备注'));
+    calls.length = 0;
+    await click('refreshQuotaBtn');
+    await waitFor("[...document.querySelectorAll('#consoleBox .log-line')].some(l => l.textContent.includes('额度已更新'))");
+    assert.ok(calls.some(call => call.route === '/api/quota/refresh'));
+    calls.length = 0;
     await evaluate("window.confirm = () => true");
-    await evaluate("[...document.querySelectorAll('#accountList .account-item .account-btn')].find(b => b.textContent.includes('切换')).click()");
+    await evaluate("[...document.querySelectorAll('#accountList .account-item:not(.active) .account-btn')][0].click()");
     await waitFor("[...document.querySelectorAll('#consoleBox .log-line')].some(l => l.textContent.includes('已切换到账号'))");
     assert.ok(calls.some(call => call.route === '/api/accounts/switch' && call.input.id === 'second'));
     calls.length = 0;
