@@ -19,7 +19,7 @@ async function main() {
   const calls = [];
   const status = {
     activeTarget: 'hub', phase: 'idle', port: 7890, enableProxy: true,
-    enableI18n: true, enableContextMonitor: true, clientRunning: false,
+    enableI18n: true, enableContextMonitor: true, enableLogCleanup: true, clientRunning: false,
     targets: {
       hub: { exists: true, appExe: 'C:\\Synthetic\\Antigravity.exe' },
       ide: { exists: false, appExe: '' }
@@ -193,6 +193,7 @@ async function main() {
     assert.equal(await evaluate("document.querySelectorAll('#accountList .account-item').length"), 2);
     assert.equal(await evaluate("document.querySelectorAll('#accountList .account-item.active').length"), 1);
     assert.equal(await evaluate("document.getElementById('quotaCard').style.display"), '');
+    assert.equal(await evaluate("document.getElementById('logCleanupToggle').checked"), true);
     assert.equal(await evaluate("document.querySelectorAll('#quotaList .quota-row').length"), 2);
     assert.equal(await evaluate("document.querySelectorAll('#quotaOverview .quota-stat').length"), 3);
     assert.equal(await evaluate("document.querySelector('#accountList .account-item:not(.active) .account-name').textContent"), '备用号');

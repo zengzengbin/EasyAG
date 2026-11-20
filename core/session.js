@@ -2,8 +2,8 @@ const { spawn } = require('node:child_process');
 const { buildProxyLaunch } = require('../features/proxy');
 
 class Session {
-  constructor({ settings, desktop, cdp, events, host, testMode = false, spawnProcess = spawn, onStart = () => {} }) {
-    Object.assign(this, { settings, desktop, cdp, events, host, testMode, spawnProcess, onStart });
+  constructor({ settings, desktop, cdp, events, host, testMode = false, spawnProcess = spawn, onStart = () => {}, onStop = () => {} }) {
+    Object.assign(this, { settings, desktop, cdp, events, host, testMode, spawnProcess, onStart, onStop });
     this.phase = 'idle';
     this.child = null;
     this.closed = false;
@@ -192,6 +192,9 @@ class Session {
       this.activeTarget = null;
       this.change('idle');
       this.events.log('SYSTEM', reason, 'tag-proxy');
+      if (!this.closed) {
+        try { this.onStop({ reason }); } catch { /* Cleanup must not break session teardown. */ }
+      }
       return { ok: true };
     })();
     try { return await this.finishing; } finally { this.finishing = null; }

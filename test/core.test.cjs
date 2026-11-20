@@ -63,13 +63,26 @@ test('An already open AG is not re-spawned on launch', async () => {
   assert.equal(running.calls.includes('spawn'), false);
 });
 
+test('onStop callback runs when AG exits but not when EasyAG closes', async () => {
+  const { session, child } = sessionFixture();
+  let stops = 0;
+  session.onStop = () => { stops++; };
+  await session.launch();
+  child.emit('exit');
+  await session.finishing;
+  assert.equal(stops, 1);
+  await session.close('quit');
+  assert.equal(stops, 1, 'closing EasyAG must not trigger a cleanup pass');
+});
+
 test('Settings validate values and lock port only while running', () => {
   assert.throws(() => normalizeSettings({ port: '7890xyz' }));
   assert.throws(() => normalizeSettings({ enableI18n: 'false' }));
   assert.throws(() => normalizeSettings({ enableContextMonitor: 'true' }));
   assert.throws(() => normalizeSettings({ enableProxy: 'true' }));
+  assert.throws(() => normalizeSettings({ enableLogCleanup: 'true' }));
   const normalized = normalizeSettings({ port: 7897, enableI18n: false, enableContextMonitor: true });
-  assert.deepEqual(normalized, { port: 7897, enableI18n: false, enableContextMonitor: true, enableProxy: true, targetApp: 'auto', customHubPath: '', customIdePath: '' });
+  assert.deepEqual(normalized, { port: 7897, enableI18n: false, enableContextMonitor: true, enableProxy: true, enableLogCleanup: true, targetApp: 'auto', customHubPath: '', customIdePath: '' });
   assert.throws(() => normalizeSettings({ customHubPath: 123 }));
   assert.throws(() => normalizeSettings({ customIdePath: true }));
   assert.throws(() => assertLaunchSettingsMutable({ customHubPath: 'D:\\custom' }, normalized, 'running'));

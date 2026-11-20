@@ -15,6 +15,7 @@ const { createApi } = require('./api');
 const { LanguageService } = require('../adapters/desktop/language-service');
 const { ContextMonitor } = require('../features/context-monitor');
 const { QuotaService } = require('../features/quota-service');
+const { LogCleanup } = require('../features/log-cleanup');
 
 function createApplication({ rootDir, dataDir, native = false, testMode = false, fetchBytes, onClose = () => {} }) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -27,6 +28,10 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
   const contextMonitor = new ContextMonitor(languageService);
   const accounts = new Accounts({ dataDir, events });
   const quotaService = new QuotaService({ client: languageService, accounts, dataDir, events });
+  const logCleanup = new LogCleanup({
+    events,
+    isRunning: async () => testMode || session?.phase === 'running' || (await desktop.running('hub')) || (await desktop.running('ide'))
+  });
   let session;
   let lastStatus = '';
   const cdp = new CdpHub({
@@ -49,6 +54,8 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
     contextMonitor.reset();
     quotaService.reset();
     void quotaService.kick();
+  }, onStop: () => {
+    if (!testMode && settings.get().enableLogCleanup) void logCleanup.run();
   } });
   const updater = new Updater({
     rootDir, dataDir, settings, events,
@@ -66,7 +73,7 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
   });
   let closing;
   const app = {
-    rootDir, dataDir, events, settings, desktop, host, cdp, session, contextMonitor, quotaService, updater, accounts,
+    rootDir, dataDir, events, settings, desktop, host, cdp, session, contextMonitor, quotaService, logCleanup, updater, accounts,
     status() {
       const currentSettings = settings.get();
       const allTargets = desktop.discoverAllTargets ? desktop.discoverAllTargets(currentSettings) : {};
@@ -97,6 +104,10 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
       await cdp.refresh();
       if (next.enableI18n !== previous.enableI18n) events.log('I18N', next.enableI18n ? '汉化已开启' : '汉化已关闭，原文已恢复', 'tag-i18n');
       if (next.enableContextMonitor !== previous.enableContextMonitor) events.log('SYSTEM', next.enableContextMonitor ? '上下文监控已开启（只读）' : '上下文监控已关闭，上下文圆环已移除', 'tag-proxy');
+      if (next.enableLogCleanup !== previous.enableLogCleanup) {
+        events.log('SYSTEM', next.enableLogCleanup ? 'AG 日志自动清理已开启' : 'AG 日志自动清理已关闭', 'tag-proxy');
+        if (next.enableLogCleanup && !testMode) void logCleanup.run();
+      }
       if (input.enableProxy !== undefined && input.enableProxy !== previous.enableProxy) {
         events.log('SYSTEM', next.enableProxy ? `免 TUN 代理已开启（127.0.0.1:${next.port}）` : '免 TUN 代理已关闭（直连模式）', 'tag-proxy');
       }
@@ -140,7 +151,9 @@ function createApplication({ rootDir, dataDir, native = false, testMode = false,
       events.log('SYSTEM', `EasyAG 桌面内核就绪，已载入 ${Object.keys(dictionary).length} 条汉化词条`, 'tag-proxy');
       if (process.env.EASYAG_READY_FILE) writeJson(process.env.EASYAG_READY_FILE, { port, pid: process.pid });
       if (!native && !testMode) host.open(`http://127.0.0.1:${port}`);
-      void session.attachExisting().catch(error => events.log('SYSTEM', error.message, 'tag-warn'));
+      void session.attachExisting().catch(error => events.log('SYSTEM', error.message, 'tag-warn')).finally(() => {
+        if (!testMode && settings.get().enableLogCleanup) void logCleanup.run();
+      });
       return port;
     },
     close(reason) {

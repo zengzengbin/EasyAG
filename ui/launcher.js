@@ -202,6 +202,7 @@ function loadSettings(status) {
   if (element('proxyToggle')) element('proxyToggle').checked = status.enableProxy !== false;
   element('i18nToggle').checked = status.enableI18n;
   element('contextMonitorToggle').checked = status.enableContextMonitor;
+  if (element('logCleanupToggle')) element('logCleanupToggle').checked = status.enableLogCleanup !== false;
   updateProxyUi(status.enableProxy !== false);
   renderStatus(status);
 }
@@ -212,6 +213,7 @@ function persistSettings() {
     enableProxy: element('proxyToggle') ? element('proxyToggle').checked : true,
     enableI18n: element('i18nToggle').checked,
     enableContextMonitor: element('contextMonitorToggle').checked,
+    enableLogCleanup: element('logCleanupToggle') ? element('logCleanupToggle').checked : true,
     targetApp: activeTarget
   };
   settingsQueue = settingsQueue.catch(() => {}).then(() => api.configure(payload));
@@ -936,7 +938,7 @@ element('customPathInput')?.addEventListener('keydown', e => {
 });
 
 element('proxyPortInput').addEventListener('input', event => { event.target.value = event.target.value.replace(/\D/g, ''); });
-for (const id of ['proxyPortInput', 'proxyToggle', 'i18nToggle', 'contextMonitorToggle']) {
+for (const id of ['proxyPortInput', 'proxyToggle', 'i18nToggle', 'contextMonitorToggle', 'logCleanupToggle']) {
   element(id)?.addEventListener('change', () => {
     if (id === 'proxyToggle') updateProxyUi(element('proxyToggle').checked);
     persistSettings().catch(report);

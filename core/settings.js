@@ -5,6 +5,7 @@ const DEFAULTS = Object.freeze({
   enableI18n: true,
   enableContextMonitor: true,
   enableProxy: true,
+  enableLogCleanup: true,
   targetApp: 'auto',
   customHubPath: '',
   customIdePath: ''
@@ -18,7 +19,7 @@ function normalizeSettings(input = {}, previous = DEFAULTS) {
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('代理端口必须是 1–65535 的整数');
     result.port = port;
   }
-  for (const key of ['enableI18n', 'enableContextMonitor', 'enableProxy']) {
+  for (const key of ['enableI18n', 'enableContextMonitor', 'enableProxy', 'enableLogCleanup']) {
     if (input[key] !== undefined) {
       if (typeof input[key] !== 'boolean') throw new Error(`${key} 必须是布尔值`);
       result[key] = input[key];
