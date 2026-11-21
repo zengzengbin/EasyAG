@@ -48,3 +48,6 @@ easyag-pretool-hook.cjs
 easyag-stop-hook.cjs
 .playwright-cli/
 rules/feeds/*.local.json
+
+# Generated release manifest (hot update disabled in EasyAG)
+update-manifest.json
