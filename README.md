@@ -82,6 +82,7 @@ EasyAG 是 Antigravity 的便携启动器：把多个 Google 账号保存为本�
    ├─ easyag-node.exe
    ├─ backend/
    ├─ README.md
+   ├─ NODE-LICENSE.txt
    ├─ LICENSE
    └─ THIRD-PARTY-NOTICES.md
    ```

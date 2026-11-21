@@ -31,3 +31,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Node.js runtime
+
+EasyAG bundles Node.js v22.23.4 as `easyag-node.exe` so end users do not need
+to install Node.js separately. The Node.js license and its bundled third-party
+notices are included in `NODE-LICENSE.txt` in the release package and are also
+available at:
+https://github.com/nodejs/node/blob/v22.23.4/LICENSE
